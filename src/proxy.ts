@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { getSupabaseEnv } from "@/lib/auth/env";
+import { getSupabaseEnv, isAuthEnabled } from "@/lib/auth/env";
 import { decideAccess, type Visitor } from "@/lib/auth/gate";
 import { roleFromEnv } from "@/lib/auth/roles";
 
@@ -11,6 +11,8 @@ import { roleFromEnv } from "@/lib/auth/roles";
  * When Supabase is not configured this is a passthrough — the app behaves as it did before auth.
  */
 export async function proxy(request: NextRequest) {
+  // Passthrough when Supabase is not configured OR AUTH_DISABLED is set (local kill-switch).
+  if (!isAuthEnabled()) return NextResponse.next();
   const env = getSupabaseEnv();
   if (!env) return NextResponse.next();
 
