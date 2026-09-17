@@ -1,0 +1,8 @@
+01/09/26, 09:00 - Messages and calls are end-to-end encrypted. No one outside of this chat, not even WhatsApp, can read or listen to them.
+01/09/26, 09:01 - לקוח בדיקה created group "בונים AI - בדיקה"
+01/09/26, 09:05 - דנה כהן: היי כולם! אני בונה סוכן קולי
+ומחפשת עזרה
+01/09/26, 09:06 - יוסי לוי: <Media omitted>
+01/09/26, 09:07 - +972 50-000-0001: אני יכול לעזור
+01/09/26, 09:08 - יוסי לוי: This message was deleted
+13/09/26, 18:45 - לקוח בדיקה: מישהו ניסה את ה-Agents SDK החדש?

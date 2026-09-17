@@ -1,0 +1,1 @@
+ALTER TABLE `analysis_runs` ADD `follow_ups` text;
