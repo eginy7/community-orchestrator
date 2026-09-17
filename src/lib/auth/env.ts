@@ -19,5 +19,7 @@ export function getSupabaseEnv(): SupabaseEnv | null {
 
 /** True only when both `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set. */
 export function isAuthEnabled(): boolean {
+  // Local kill-switch: keep the Supabase keys in .env.local but run without login (e.g. before Google is configured).
+  if (process.env.AUTH_DISABLED === "true" || process.env.AUTH_DISABLED === "1") return false;
   return getSupabaseEnv() !== null;
 }
