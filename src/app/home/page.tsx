@@ -4,6 +4,8 @@ import { AppShell } from "@/components/AppShell";
 import { AskCommunity } from "@/components/AskCommunity";
 import { FollowUps } from "@/components/FollowUps";
 import { MissedCard } from "@/components/MissedCard";
+import { NewsBriefs } from "@/components/NewsBriefs";
+import { MomentumScore } from "@/components/MomentumScore";
 import { RecommendationCard } from "@/components/RecommendationCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,9 +13,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { humanize, resolveName, showRealNames } from "@/lib/display";
 import type { RecommendationTier } from "@/lib/db/schema";
+import { dateLocaleOf, getLocale, getT } from "@/lib/i18n/server";
 import { pickMissedHero } from "@/lib/missed";
-import { getCommunity, getGroups, getGroupStats, getLatestRun, getMessagesByIds, getOpenThreads, getProfileCount, getRecommendations, getTopProfiles, getTopics, getWeeklyReminder } from "@/lib/queries";
-import { TIER_HINT, TIER_LABEL, toRecommendationView } from "@/lib/viewmodel";
+import { getCommunity, getGroups, getGroupStats, getLatestRun, getMessagesByIds, getOpenThreads, getProfileCount, getRecommendations, getRunSummary, getTopProfiles, getTopics, getWeeklyReminder } from "@/lib/queries";
+import { formatRunSummary } from "@/lib/run-summary";
+import { tierHint, tierLabel, toRecommendationView } from "@/lib/viewmodel";
 
 export const dynamic = "force-dynamic";
 
@@ -22,10 +26,13 @@ const TIERS: RecommendationTier[] = ["do_now", "organize", "plan"];
 export default async function HomePage() {
   const community = getCommunity();
   const real = await showRealNames();
+  const locale = await getLocale();
+  const t = getT(locale);
+  const dateLocale = dateLocaleOf(locale);
   if (!community) {
     return (
       <AppShell realNames={real}>
-        <Empty title="עוד אין קהילה" description="ייצאו את הצ׳אטים של הקהילה והעלו אותם. Claude יגדיר את השאר." cta="להעלאת השיחות" href="/upload" />
+        <Empty title={t("home.noCommunityTitle")} description={t("home.noCommunityBody")} cta={t("home.uploadCta")} href="/upload" />
       </AppShell>
     );
   }
@@ -35,9 +42,9 @@ export default async function HomePage() {
     return (
       <AppShell communityName={community.name} realNames={real}>
         {pendingRun && (pendingRun.status === "running" || pendingRun.status === "queued") ? (
-          <Empty title="הניתוח עדיין רץ" cta="למסך ההתקדמות" href={`/analysis/${pendingRun.id}`} />
+          <Empty title={t("home.runningTitle")} cta={t("home.runningCta")} href={`/analysis/${pendingRun.id}`} />
         ) : (
-          <Empty title="עוד אין ניתוח" description="העלו את ייצוא הקבוצות ותנו ל-Claude לקרוא את הקהילה." cta="להעלאת שיחות" href="/upload" />
+          <Empty title={t("home.noRunTitle")} description={t("home.noRunBody")} cta={t("home.noRunCta")} href="/upload" />
         )}
       </AppShell>
     );
@@ -48,8 +55,8 @@ export default async function HomePage() {
   const recs = getRecommendations(run.id);
   const messageIds = [...new Set(recs.flatMap((r) => r.evidence.map((e) => e.message_id)))];
   const messagesById = getMessagesByIds(messageIds);
-  const views = recs.map((r) => toRecommendationView(r, real, groupsById, messagesById));
-  const missed = pickMissedHero(recs, views, messagesById, real);
+  const views = recs.map((r) => toRecommendationView(r, real, groupsById, messagesById, locale));
+  const missed = pickMissedHero(recs, views, messagesById, real, locale);
   const profileCount = getProfileCount(run.id);
 
   const stats = getGroupStats(community.id);
@@ -60,6 +67,7 @@ export default async function HomePage() {
   const threads = getOpenThreads(run.id);
   const openCount = views.filter((v) => v.status === "proposed" || v.status === "accepted").length;
   const reminder = getWeeklyReminder(community.id);
+  const runSummary = getRunSummary(run.id);
 
   return (
     <AppShell communityName={community.name} realNames={real} reminder={reminder}>
@@ -67,26 +75,30 @@ export default async function HomePage() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-sm text-muted-foreground mb-1">
-              {run.finishedAt ? `ניתוח מ-${run.finishedAt.toLocaleDateString("he-IL")}` : ""} · {groups.length} קבוצות · {totalMembers.toLocaleString("he-IL")} חברים פעילים ·{" "}
-              {totalMessages.toLocaleString("he-IL")} הודעות
+              {run.finishedAt ? t("home.analysisFrom", { date: run.finishedAt.toLocaleDateString(dateLocale) }) : ""} ·{" "}
+              {t("home.statsLine", { groups: groups.length, members: totalMembers.toLocaleString(dateLocale), messages: totalMessages.toLocaleString(dateLocale) })}
             </p>
-            <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">מה הקהילה שלך צריכה השבוע</h1>
+            <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">{t("home.title")}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{formatRunSummary(runSummary, locale)}</p>
           </div>
-          <Button asChild variant="outline">
-            <Link href="/upload">
-              <UploadIcon className="size-4" /> העלאה וניתוח מחדש
-            </Link>
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <MomentumScore communityId={community.id} className="max-w-full" />
+            <Button asChild variant="outline">
+              <Link href="/upload">
+                <UploadIcon className="size-4" /> {t("home.reanalyze")}
+              </Link>
+            </Button>
+          </div>
         </div>
         {run.communityPulse ? <p className="mt-4 max-w-3xl text-lg leading-relaxed text-muted-foreground">{humanize(run.communityPulse, real)}</p> : null}
-        <p className="mt-2 text-sm text-muted-foreground">
-          {openCount} פעולות ממתינות מתוך {views.length}.
-        </p>
+        <p className="mt-2 text-sm text-muted-foreground">{t("home.pendingActions", { open: openCount, total: views.length })}</p>
       </section>
 
       {missed ? <MissedCard view={missed.view} hook={missed.hook} className="mb-10" /> : null}
 
       <FollowUps run={run} real={real} />
+
+      <NewsBriefs communityId={community.id} real={real} />
 
       <section className="mb-10">
         <AskCommunity profileCount={profileCount} />
@@ -99,8 +111,8 @@ export default async function HomePage() {
           return (
             <section key={tier}>
               <div className="mb-3 flex items-baseline gap-3">
-                <h2 className="text-xl font-semibold">{TIER_LABEL[tier]}</h2>
-                <span className="text-sm text-muted-foreground">{TIER_HINT[tier]}</span>
+                <h2 className="text-xl font-semibold">{tierLabel(tier, t)}</h2>
+                <span className="text-sm text-muted-foreground">{tierHint(tier, t)}</span>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 {items.map((rec) => (
@@ -113,34 +125,34 @@ export default async function HomePage() {
       </div>
 
       <section className="mt-14">
-        <h2 className="mb-3 text-xl font-semibold">מה קורה בקהילה</h2>
+        <h2 className="mb-3 text-xl font-semibold">{t("home.whatsHappening")}</h2>
         <Tabs defaultValue="topics">
           <TabsList>
-            <TabsTrigger value="topics">נושאים חמים</TabsTrigger>
-            <TabsTrigger value="people">חברים בולטים</TabsTrigger>
-            <TabsTrigger value="threads">שיחות פתוחות</TabsTrigger>
+            <TabsTrigger value="topics">{t("home.tabTopics")}</TabsTrigger>
+            <TabsTrigger value="people">{t("home.tabPeople")}</TabsTrigger>
+            <TabsTrigger value="threads">{t("home.tabThreads")}</TabsTrigger>
           </TabsList>
           <TabsContent value="topics" className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 pt-3">
-            {topics.map((t) => (
-              <Card key={t.id} size="sm">
+            {topics.map((topic) => (
+              <Card key={topic.id} size="sm">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
-                    {t.momentum === "rising" ? <TrendingUpIcon className="size-4 text-emerald-600" /> : t.momentum === "fading" ? <TrendingDownIcon className="size-4 text-rose-500" /> : <MinusIcon className="size-4 text-muted-foreground" />}
-                    <span dir="auto">{t.name}</span>
-                    <span className="ms-auto text-xs font-normal text-muted-foreground">{t.memberIds.length} חברים</span>
+                    {topic.momentum === "rising" ? <TrendingUpIcon className="size-4 text-emerald-600" /> : topic.momentum === "fading" ? <TrendingDownIcon className="size-4 text-rose-500" /> : <MinusIcon className="size-4 text-muted-foreground" />}
+                    <span dir="auto">{topic.name}</span>
+                    <span className="ms-auto text-xs font-normal text-muted-foreground">{t("home.topicMembers", { n: topic.memberIds.length })}</span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="text-sm text-muted-foreground leading-relaxed">
-                  {t.summary}
-                  {t.workshopPotential === "high" ? (
+                  {topic.summary}
+                  {topic.workshopPotential === "high" ? (
                     <Badge variant="secondary" className="mt-2">
-                      מתאים לסדנה
+                      {t("home.workshopFit")}
                     </Badge>
                   ) : null}
                 </CardContent>
               </Card>
             ))}
-            {topics.length === 0 ? <p className="text-sm text-muted-foreground">אין נושאים עדיין.</p> : null}
+            {topics.length === 0 ? <p className="text-sm text-muted-foreground">{t("home.noTopics")}</p> : null}
           </TabsContent>
           <TabsContent value="people" className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 pt-3">
             {profiles.map((p) => (
@@ -165,7 +177,7 @@ export default async function HomePage() {
                 </CardContent>
               </Card>
             ))}
-            {profiles.length === 0 ? <p className="text-sm text-muted-foreground">אין פרופילים עדיין.</p> : null}
+            {profiles.length === 0 ? <p className="text-sm text-muted-foreground">{t("home.noProfiles")}</p> : null}
           </TabsContent>
           <TabsContent value="threads" className="grid gap-3 md:grid-cols-2 pt-3">
             {threads.map((th) => (
@@ -179,13 +191,13 @@ export default async function HomePage() {
                 <CardContent className="text-sm text-muted-foreground leading-relaxed">
                   <p>{humanize(th.summary, real)}</p>
                   <p className="mt-1 text-xs">
-                    «{th.groupName}» · {th.kind === "unanswered" ? "ללא מענה" : th.kind === "stalled" ? "נעצר" : "אות לשיתוף פעולה"}
-                    {th.ts ? ` · ${th.ts.toLocaleDateString("he-IL")}` : ""}
+                    «{th.groupName}» · {th.kind === "unanswered" ? t("home.threadUnanswered") : th.kind === "stalled" ? t("home.threadStalled") : t("home.threadCollab")}
+                    {th.ts ? ` · ${th.ts.toLocaleDateString(dateLocale)}` : ""}
                   </p>
                 </CardContent>
               </Card>
             ))}
-            {threads.length === 0 ? <p className="text-sm text-muted-foreground">אין שיחות פתוחות.</p> : null}
+            {threads.length === 0 ? <p className="text-sm text-muted-foreground">{t("home.noThreads")}</p> : null}
           </TabsContent>
         </Tabs>
       </section>

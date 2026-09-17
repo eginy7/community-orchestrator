@@ -7,12 +7,14 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { showRealNames } from "@/lib/display";
+import { getLocale, getT } from "@/lib/i18n/server";
 import { getCommunity, getGroups } from "@/lib/queries";
-import { GOAL_OPTIONS } from "@/lib/goals";
+import { GOALS } from "@/lib/goals";
 import { saveOnboarding } from "./actions";
 
 export const dynamic = "force-dynamic";
 
+// Seed rows for a community without groups. These are stored data (WhatsApp group names / purposes), so they stay Hebrew.
 const DEFAULT_GROUPS = [
   { name: "כללי", purpose: "דיון כללי, חדשות AI, שיתופים", kind: "general" },
   { name: "שאלות ועזרה", purpose: "שאלות טכניות ועזרה הדדית", kind: "help" },
@@ -26,6 +28,7 @@ export default async function OnboardingPage() {
   // No community yet → the upload screen defines it. Settings are for refining afterwards.
   if (!community) redirect("/upload");
   const real = await showRealNames();
+  const t = getT(await getLocale());
   const groups = getGroups(community.id);
   const initialGroups = groups.length
     ? groups.map((g) => ({ name: g.name, purpose: g.purpose, kind: g.kind }))
@@ -35,28 +38,27 @@ export default async function OnboardingPage() {
   return (
     <AppShell communityName={community.name} realNames={real}>
       <div className="mx-auto max-w-3xl">
-        <h1 className="text-3xl font-bold tracking-tight">הגדרות הקהילה</h1>
-        <p className="mt-2 text-muted-foreground">
-          הקבוצות זוהו אוטומטית מהקבצים. כאן אפשר לדייק שם, מטרה וסוג, ולסמן איזו קבוצה היא ערוץ ההודעות הרשמי.
-        </p>
+        <h1 className="text-3xl font-bold tracking-tight">{t("onboarding.title")}</h1>
+        <p className="mt-2 text-muted-foreground">{t("onboarding.subtitle")}</p>
 
         <form action={saveOnboarding} className="mt-8 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>הקהילה</CardTitle>
+              <CardTitle>{t("onboarding.communityCard")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="grid gap-2">
-                <Label htmlFor="name">שם הקהילה</Label>
-                <Input id="name" name="name" defaultValue={community.name} required />
+                <Label htmlFor="name">{t("onboarding.nameLabel")}</Label>
+                <Input id="name" name="name" defaultValue={community.name} required dir="auto" />
               </div>
               <div className="grid gap-2">
-                <Label>מטרות (אופציונלי)</Label>
+                <Label>{t("onboarding.goalsLabel")}</Label>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {GOAL_OPTIONS.map((g) => (
-                    <label key={g} className="flex items-center gap-2 text-sm">
-                      <Checkbox name="goals" value={g} defaultChecked={community.goals.includes(g)} />
-                      {g}
+                  {GOALS.map((g) => (
+                    <label key={g.key} className="flex items-center gap-2 text-sm">
+                      {/* The Hebrew value is what gets stored and sent to the model; only the label is translated. */}
+                      <Checkbox name="goals" value={g.value} defaultChecked={community.goals.includes(g.value)} />
+                      {t(`goals.${g.key}`)}
                     </label>
                   ))}
                 </div>
@@ -66,8 +68,8 @@ export default async function OnboardingPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>הקבוצות</CardTitle>
-              <CardDescription>שם כפי שמופיע בוואטסאפ, ומשפט על מה הקבוצה. סמנו את קבוצת ההודעות הרשמית.</CardDescription>
+              <CardTitle>{t("onboarding.groupsCard")}</CardTitle>
+              <CardDescription>{t("onboarding.groupsDesc")}</CardDescription>
             </CardHeader>
             <CardContent>
               <GroupsEditor initial={initialGroups} announcementIdx={announcementIdx} />
@@ -76,7 +78,7 @@ export default async function OnboardingPage() {
 
           <div className="flex justify-end">
             <Button type="submit" size="lg">
-              שמור והמשך להעלאה
+              {t("onboarding.save")}
             </Button>
           </div>
         </form>

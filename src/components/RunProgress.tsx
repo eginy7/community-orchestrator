@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import type { RunProgress as RunProgressData } from "@/lib/db/schema";
+import { useLocale } from "@/lib/i18n/client";
+import type { MessageKey } from "@/lib/i18n/messages";
+import { formatRunSummary } from "@/lib/run-summary";
 
 interface ChunkState {
   id: number;
@@ -21,6 +24,10 @@ interface ChunkState {
 
 interface RunState {
   chunks: ChunkState[];
+  /** Sum of messageCount over finished chunks. */
+  messagesRead: number;
+  /** finishedAt - startedAt, null while running. */
+  durationMs: number | null;
   id: number;
   status: "queued" | "running" | "done" | "failed";
   stage: "A" | "merge" | "B";
@@ -29,10 +36,11 @@ interface RunState {
   error: string | null;
 }
 
-const STAGE_LABEL = { A: "שלב א׳ · קריאת הקבוצות", merge: "מיזוג המודל", B: "שלב ב׳ · בניית התוכנית" } as const;
+const STAGE_KEY: Record<RunState["stage"], MessageKey> = { A: "runProgress.stageA", merge: "runProgress.stageMerge", B: "runProgress.stageB" };
 
 export function RunProgress({ runId }: { runId: number }) {
   const router = useRouter();
+  const { t, dir, locale } = useLocale();
   const [state, setState] = useState<RunState | null>(null);
   const [resuming, setResuming] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -105,16 +113,20 @@ export function RunProgress({ runId }: { runId: number }) {
             )}
             <div className="flex-1">
               <div className="font-medium">
-                {state?.status === "done" ? "הניתוח הסתיים — עוברים לדף הבית" : state?.status === "failed" ? "הניתוח נעצר" : state ? STAGE_LABEL[state.stage] : "מתחבר…"}
+                {state?.status === "done" ? t("runProgress.done") : state?.status === "failed" ? t("runProgress.failed") : state ? t(STAGE_KEY[state.stage]) : t("runProgress.connecting")}
               </div>
+              {state?.status === "done" && p ? (
+                <div className="text-sm text-muted-foreground">{formatRunSummary({ messagesRead: state.messagesRead ?? 0, costUsd: p.costUsd, durationMs: state.durationMs ?? null }, locale)}</div>
+              ) : null}
               {p && p.stage === "A" && p.chunksTotal ? (
                 <div className="text-sm text-muted-foreground">
-                  {p.chunksDone}/{p.chunksTotal} צ׳אנקים{p.currentGroup ? ` · עכשיו: «${p.currentGroup}»` : ""}
+                  {t("runProgress.chunksProgress", { done: p.chunksDone, total: p.chunksTotal })}
+                  {p.currentGroup ? t("runProgress.currentGroup", { name: p.currentGroup }) : ""}
                 </div>
               ) : null}
               {state?.status === "running" && state.stage === "B" ? (
                 <div className="text-sm text-muted-foreground">
-                  קריאה אחת על כל מודל הקהילה. לוקח 5–10 דקות
+                  {t("runProgress.stageBHint")}
                   {stageBSince ? (
                     <span dir="ltr" className="tabular-nums">
                       {" "}
@@ -136,23 +148,23 @@ export function RunProgress({ runId }: { runId: number }) {
             <div className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
               <span className="flex-1 text-destructive">{state.error}</span>
               <Button size="sm" variant="outline" onClick={resume} disabled={resuming || state.active}>
-                <RotateCcwIcon className="size-4" /> המשך מאיפה שנעצר
+                <RotateCcwIcon className="size-4" /> {t("runProgress.resume")}
               </Button>
             </div>
           ) : null}
           {state?.status === "done" && state.chunks?.some((c) => c.status === "failed") ? (
             <div className="flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm">
-              <span className="flex-1 text-muted-foreground">הניתוח הסתיים, אבל {state.chunks.filter((c) => c.status === "failed").length} צ׳אנקים לא נקראו. אפשר להשלים אותם ולבנות את התוכנית מחדש.</span>
+              <span className="flex-1 text-muted-foreground">{t("runProgress.partial", { n: state.chunks.filter((c) => c.status === "failed").length })}</span>
               <Button size="sm" variant="outline" onClick={resume} disabled={resuming || state.active}>
-                <RotateCcwIcon className="size-4" /> השלם צ׳אנקים חסרים
+                <RotateCcwIcon className="size-4" /> {t("runProgress.completeMissing")}
               </Button>
             </div>
           ) : null}
           {state?.status === "queued" && !state.active ? (
             <div className="flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm">
-              <span className="flex-1 text-muted-foreground">הריצה לא פעילה (אולי השרת אותחל).</span>
+              <span className="flex-1 text-muted-foreground">{t("runProgress.inactive")}</span>
               <Button size="sm" variant="outline" onClick={resume} disabled={resuming}>
-                <RotateCcwIcon className="size-4" /> הפעל
+                <RotateCcwIcon className="size-4" /> {t("runProgress.start")}
               </Button>
             </div>
           ) : null}
@@ -163,8 +175,8 @@ export function RunProgress({ runId }: { runId: number }) {
         <Card>
           <CardContent className="pt-2">
             <div className="mb-2 flex items-baseline justify-between">
-              <div className="text-sm font-medium">הצ׳אנקים</div>
-              <div className="text-xs text-muted-foreground">צ׳אנק גדול (100K+ טוקנים) לוקח 5–10 דקות. שניים רצים במקביל.</div>
+              <div className="text-sm font-medium">{t("runProgress.chunksTitle")}</div>
+              <div className="text-xs text-muted-foreground">{t("runProgress.chunksHint")}</div>
             </div>
             <ul className="grid gap-1.5 sm:grid-cols-2">
               {state.chunks.map((c) => {
@@ -194,14 +206,23 @@ export function RunProgress({ runId }: { runId: number }) {
               })}
             </ul>
             {state.chunks.some((c) => c.status === "failed") && state.status === "running" ? (
-              <p className="mt-2 text-xs text-muted-foreground">צ׳אנק שנכשל לא עוצר את הריצה. בסיום אפשר ללחוץ «המשך» כדי להשלים אותו.</p>
+              <p className="mt-2 text-xs text-muted-foreground">{t("runProgress.failedChunkNote")}</p>
             ) : null}
           </CardContent>
         </Card>
       ) : null}
 
-      <div ref={logRef} className="max-h-80 overflow-y-auto rounded-lg border bg-muted/40 p-4 font-mono text-xs leading-relaxed" dir="rtl">
-        {p?.log.length ? p.log.map((line, i) => <div key={i}>{line}</div>) : <span className="text-muted-foreground">ממתין ללוג…</span>}
+      {/* The log lines come from the server in Hebrew regardless of UI language, so each line picks its own direction. */}
+      <div ref={logRef} className="max-h-80 overflow-y-auto rounded-lg border bg-muted/40 p-4 font-mono text-xs leading-relaxed" dir={dir}>
+        {p?.log.length ? (
+          p.log.map((line, i) => (
+            <div key={i} dir="auto">
+              {line}
+            </div>
+          ))
+        ) : (
+          <span className="text-muted-foreground">{t("runProgress.waitingLog")}</span>
+        )}
       </div>
     </div>
   );

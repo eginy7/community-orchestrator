@@ -3,6 +3,7 @@
 import { CheckCircle2Icon, FileSearchIcon, MegaphoneIcon, ShieldCheckIcon, SparklesIcon, UsersRoundIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { useLocale } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
 
 /**
@@ -12,10 +13,10 @@ import { cn } from "@/lib/utils";
  */
 
 export const IMPORT_STEPS = [
-  { label: "קורא את הקובץ", icon: FileSearchIcon },
-  { label: "מזהה את הקבוצה", icon: UsersRoundIcon },
-  { label: "מאנונם שמות וטלפונים", icon: ShieldCheckIcon },
-  { label: "שומר הודעות", icon: CheckCircle2Icon },
+  { key: "importBoard.stepRead", icon: FileSearchIcon },
+  { key: "importBoard.stepDetect", icon: UsersRoundIcon },
+  { key: "importBoard.stepAnonymize", icon: ShieldCheckIcon },
+  { key: "importBoard.stepSave", icon: CheckCircle2Icon },
 ] as const;
 
 export interface BoardGroup {
@@ -45,10 +46,12 @@ interface Props {
 }
 
 export function ImportBoard({ communityName, groups, pending, failed, totalFiles, doneFiles }: Props) {
+  const { t, dateLocale } = useLocale();
   const importing = pending.length > 0;
   const pct = totalFiles ? Math.round(((doneFiles + pending.reduce((s, p) => s + p.step / IMPORT_STEPS.length, 0)) / totalFiles) * 100) : 0;
   const totalMessages = groups.reduce((s, g) => s + g.messageCount, 0);
   const totalMembers = groups.reduce((s, g) => s + g.memberCount, 0);
+  const num = (n: number) => n.toLocaleString(dateLocale);
 
   return (
     <div className="rounded-2xl border bg-linear-to-b from-primary/5 to-transparent p-6">
@@ -60,17 +63,18 @@ export function ImportBoard({ communityName, groups, pending, failed, totalFiles
           <div className="text-lg font-semibold">
             {importing ? (
               <span>
-                Claude מכיר את «{communityName}»<AnimatedDots />
+                {t("importBoard.gettingToKnow", { name: communityName })}
+                <AnimatedDots />
               </span>
             ) : failed && !groups.length ? (
-              "לא הצלחנו לקרוא את הקבצים"
+              t("importBoard.readFailed")
             ) : (
-              `«${communityName}» מוכנה לניתוח`
+              t("importBoard.ready", { name: communityName })
             )}
           </div>
           <div className="text-sm text-muted-foreground tabular-nums">
-            {groups.length} קבוצות · {totalMessages.toLocaleString("he-IL")} הודעות · {totalMembers.toLocaleString("he-IL")} כותבים
-            {failed ? ` · ${failed} קבצים נכשלו` : ""}
+            {t("importBoard.summary", { groups: groups.length, messages: num(totalMessages), members: num(totalMembers) })}
+            {failed ? t("importBoard.failedSuffix", { n: failed }) : ""}
           </div>
         </div>
         {totalFiles > 0 ? (
@@ -104,7 +108,7 @@ export function ImportBoard({ communityName, groups, pending, failed, totalFiles
                 <Badge variant="outline" className="h-4 px-1.5 text-[10px] font-normal">
                   {g.kindLabel}
                 </Badge>
-                {g.messageCount.toLocaleString("he-IL")} הודעות · {g.memberCount}
+                {t("importBoard.bubbleStats", { messages: num(g.messageCount), members: g.memberCount })}
               </div>
             </div>
           </div>
@@ -123,7 +127,7 @@ export function ImportBoard({ communityName, groups, pending, failed, totalFiles
                   {p.name}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {Step.label}
+                  {t(Step.key)}
                   <AnimatedDots />
                 </div>
               </div>
@@ -137,8 +141,8 @@ export function ImportBoard({ communityName, groups, pending, failed, totalFiles
           {IMPORT_STEPS.map((s, i) => {
             const active = pending.some((p) => p.step === i);
             return (
-              <li key={s.label} className={cn("flex items-center gap-1.5 transition-colors", active && "text-primary font-medium")}>
-                <s.icon className="size-3.5" /> {s.label}
+              <li key={s.key} className={cn("flex items-center gap-1.5 transition-colors", active && "text-primary font-medium")}>
+                <s.icon className="size-3.5" /> {t(s.key)}
               </li>
             );
           })}

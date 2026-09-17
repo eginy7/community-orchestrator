@@ -23,7 +23,7 @@ export interface AskResult {
  * (`buildCommunityModelDoc` + `buildStageBSystem`), so they are byte-identical to the
  * Stage B request and hit its 1h prompt cache. The question goes into the user message only.
  */
-export async function askCommunity(opts: { runId: number; question: string }): Promise<AskResult> {
+export async function askCommunity(opts: { runId: number; question: string; language?: "he" | "en" }): Promise<AskResult> {
   const db = getDb();
   const run = db.select().from(analysisRuns).where(eq(analysisRuns.id, opts.runId)).get();
   if (!run) throw new Error(`run ${opts.runId} not found`);
@@ -38,7 +38,7 @@ export async function askCommunity(opts: { runId: number; question: string }): P
     model: MODEL,
     max_tokens: MAX_OUTPUT_TOKENS,
     system: buildStageBSystem(doc.text),
-    messages: [{ role: "user", content: buildAskUser(new Date().toISOString().slice(0, 10), opts.question) }],
+    messages: [{ role: "user", content: buildAskUser(new Date().toISOString().slice(0, 10), opts.question, opts.language) }],
     output_config: { effort: "medium", format: zodOutputFormat(AskOutput) },
   });
 
@@ -64,11 +64,16 @@ export async function askCommunity(opts: { runId: number; question: string }): P
   return { output: validateAsk(parsed.data, groupRows.map((g) => g.id)), usage, costUsd: costUsd(usage) };
 }
 
-function buildAskUser(todayIso: string, question: string): string {
-  return `Today is ${todayIso}. The community manager asks: «${question.trim()}».
+/**
+ * The question goes into the user message only, so the (cached) system prompt stays byte-identical.
+ * `language: "en"` asks for an English answer for demos; the quoted WhatsApp material and people stay as they are.
+ */
+function buildAskUser(todayIso: string, question: string, language?: "he" | "en"): string {
+  const base = `Today is ${todayIso}. The community manager asks: «${question.trim()}».
 
 Answer from the community model only. Name people ONLY by roster ids (M####), cite message ids as evidence, Hebrew, concise. If nobody fits, say so honestly.
 suggested_message: a WhatsApp-ready Hebrew message the manager could send (e.g. asking the relevant person to help), addressing people as @M#### tokens — or null if a message would not be useful.`;
+  return language === "en" ? `${base}\n\nAnswer in English (people, quotes stay as they are).` : base;
 }
 
 const normId = (id: string) => id.trim().replace(/^@/, "");

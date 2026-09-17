@@ -1,8 +1,19 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDaysIcon, CheckCircle2Icon, FlameIcon, Link2Icon, MegaphoneIcon, RefreshCwIcon, UsersIcon, XCircleIcon } from "lucide-react";
+import {
+  CalendarDaysIcon,
+  CalendarPlusIcon,
+  CheckCircle2Icon,
+  ChevronDownIcon,
+  FlameIcon,
+  Link2Icon,
+  MegaphoneIcon,
+  RefreshCwIcon,
+  UsersIcon,
+  XCircleIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -12,8 +23,13 @@ import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { buildEventDescription, buildKickoffDraft, deriveGroupName } from "@/lib/drafts";
+import { useLocale } from "@/lib/i18n/client";
+import type { MessageKey } from "@/lib/i18n/messages";
+import { buildIcs, slugify } from "@/lib/ics";
+import { evidenceSummary, gapCaption, relativeLabel } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
-import type { RecommendationView } from "@/lib/viewmodel";
+import type { EvidenceView, RecommendationView } from "@/lib/viewmodel";
 import { CopyMessageButton } from "./CopyMessageButton";
 
 const TYPE_STYLE: Record<RecommendationView["type"], { icon: React.ComponentType<{ className?: string }>; className: string }> = {
@@ -25,9 +41,10 @@ const TYPE_STYLE: Record<RecommendationView["type"], { icon: React.ComponentType
   ritual: { icon: MegaphoneIcon, className: "bg-stone-200 text-stone-800 dark:bg-stone-800 dark:text-stone-200" },
 };
 
-const CONFIDENCE_LABEL: Record<string, string> = { high: "ביטחון גבוה", medium: "ביטחון בינוני", low: "ביטחון נמוך" };
+const CONFIDENCE_KEY: Record<string, MessageKey> = { high: "card.confidenceHigh", medium: "card.confidenceMedium", low: "card.confidenceLow" };
 
 export function RecommendationCard({ rec }: { rec: RecommendationView }) {
+  const { t, dir } = useLocale();
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState(rec.status);
   const [pending, startTransition] = useTransition();
@@ -35,6 +52,32 @@ export function RecommendationCard({ rec }: { rec: RecommendationView }) {
   const T = TYPE_STYLE[rec.type];
   const done = status === "done";
   const dismissed = status === "dismissed";
+  // The drawer slides in from the end side of the reading direction (left in RTL, right in LTR).
+  const sheetSide = dir === "rtl" ? "left" : "right";
+  // Kickoff packs make sense wherever the manager is about to open something new.
+  const showKickoff = rec.type === "working_group" || rec.type === "event" || rec.type === "initiative";
+  // A calendar entry needs a date to anchor to: events always, working groups only when the plan names a timeline.
+  const showCalendar = rec.type === "event" || (rec.type === "working_group" && Boolean(rec.extras?.timeline));
+  const kickoffDraft = useMemo(() => (showKickoff ? buildKickoffDraft(rec) : ""), [rec, showKickoff]);
+  const confidence = CONFIDENCE_KEY[rec.confidence];
+
+  const downloadIcs = () => {
+    try {
+      const ics = buildIcs({ id: rec.id, title: rec.title, description: buildEventDescription(rec) });
+      const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${slugify(rec.title, `rec-${rec.id}`)}.ics`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast.success(t("card.icsCreated"));
+    } catch {
+      toast.error(t("card.icsFailed"));
+    }
+  };
 
   const setStatusRemote = (next: RecommendationView["status"]) => {
     startTransition(async () => {
@@ -45,9 +88,9 @@ export function RecommendationCard({ rec }: { rec: RecommendationView }) {
       });
       if (res.ok) {
         setStatus(next);
-        toast.success(next === "done" ? "סומן כבוצע" : next === "dismissed" ? "סומן כלא רלוונטי" : "עודכן");
+        toast.success(next === "done" ? t("card.toastDone") : next === "dismissed" ? t("card.toastDismissed") : t("card.toastUpdated"));
         router.refresh();
-      } else toast.error("העדכון נכשל");
+      } else toast.error(t("card.toastFailed"));
     });
   };
 
@@ -62,14 +105,14 @@ export function RecommendationCard({ rec }: { rec: RecommendationView }) {
                 <T.icon className="size-3.5" />
                 {rec.typeLabel}
               </Badge>
-              <span className="text-xs text-muted-foreground">{CONFIDENCE_LABEL[rec.confidence] ?? rec.confidence}</span>
-              {rec.whereGroupName ? <span className="text-xs text-muted-foreground">· ב«{rec.whereGroupName}»</span> : null}
+              <span className="text-xs text-muted-foreground">{confidence ? t(confidence) : rec.confidence}</span>
+              {rec.whereGroupName ? <span className="text-xs text-muted-foreground">{t("card.inGroup", { name: rec.whereGroupName })}</span> : null}
               {done ? (
                 <Badge variant="secondary" className="gap-1">
-                  <CheckCircle2Icon className="size-3" /> בוצע
+                  <CheckCircle2Icon className="size-3" /> {t("card.done")}
                 </Badge>
               ) : null}
-              {dismissed ? <Badge variant="outline">לא רלוונטי</Badge> : null}
+              {dismissed ? <Badge variant="outline">{t("card.dismissed")}</Badge> : null}
             </div>
             <h3 className="text-lg font-semibold leading-snug">{rec.title}</h3>
           </div>
@@ -100,10 +143,10 @@ export function RecommendationCard({ rec }: { rec: RecommendationView }) {
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
             <Button variant="outline" size="sm">
-              פרטים והוכחות
+              {t("card.details")}
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-full data-[side=left]:sm:max-w-xl overflow-y-auto">
+          <SheetContent side={sheetSide} className="w-full data-[side=left]:sm:max-w-xl data-[side=right]:sm:max-w-xl overflow-y-auto">
             <SheetHeader className="text-start">
               <div className="flex items-center gap-2">
                 <Badge className={cn("gap-1 border-0", T.className)}>
@@ -116,11 +159,11 @@ export function RecommendationCard({ rec }: { rec: RecommendationView }) {
             </SheetHeader>
 
             <div className="space-y-6 px-4 pb-8">
-              <Section title="למה">
+              <Section title={t("card.sectionWhy")}>
                 <p className="text-sm leading-relaxed">{rec.why}</p>
               </Section>
 
-              <Section title="מי מעורב">
+              <Section title={t("card.sectionWho")}>
                 <ul className="space-y-2">
                   {rec.people.map((p) => (
                     <li key={p.id} className="flex items-start gap-2 text-sm">
@@ -138,33 +181,17 @@ export function RecommendationCard({ rec }: { rec: RecommendationView }) {
                 </ul>
               </Section>
 
-              <Section title={`הוכחות מהשיחות (${rec.evidence.length})`}>
-                <ul className="space-y-3">
-                  {rec.evidence.map((e) => (
-                    <li key={e.messageId} className="rounded-lg border bg-muted/40 p-3 text-sm">
-                      <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground mb-1">
-                        <span className="font-medium text-foreground" dir="auto">
-                          {e.author}
-                        </span>
-                        <span>· «{e.groupName}»</span>
-                        <span dir="ltr">· {e.date}</span>
-                      </div>
-                      <blockquote dir="auto" className="whitespace-pre-wrap leading-relaxed [unicode-bidi:plaintext]">
-                        {e.text}
-                      </blockquote>
-                      {e.whyRelevant ? <div className="mt-1.5 text-xs text-muted-foreground">↳ {e.whyRelevant}</div> : null}
-                    </li>
-                  ))}
-                </ul>
+              <Section title={t("card.sectionEvidence", { n: rec.evidence.length })}>
+                <EvidenceTimeline items={rec.evidence} />
               </Section>
 
-              <Section title="הצעד הבא">
+              <Section title={t("card.sectionNext")}>
                 <p className="text-sm leading-relaxed">{rec.action}</p>
                 {rec.extras ? (
                   <div className="mt-3 grid gap-2 text-sm">
                     {rec.extras.agenda.length ? (
                       <div>
-                        <div className="font-medium mb-1">אג׳נדה / מבנה</div>
+                        <div className="font-medium mb-1">{t("card.agenda")}</div>
                         <ol className="list-decimal ps-5 space-y-0.5">
                           {rec.extras.agenda.map((a, i) => (
                             <li key={i}>{a}</li>
@@ -174,19 +201,19 @@ export function RecommendationCard({ rec }: { rec: RecommendationView }) {
                     ) : null}
                     {rec.extras.firstTask ? (
                       <div>
-                        <span className="font-medium">משימה ראשונה: </span>
+                        <span className="font-medium">{t("card.firstTask")}</span>
                         {rec.extras.firstTask}
                       </div>
                     ) : null}
                     {rec.extras.timeline ? (
                       <div>
-                        <span className="font-medium">לוח זמנים: </span>
+                        <span className="font-medium">{t("card.timeline")}</span>
                         {rec.extras.timeline}
                       </div>
                     ) : null}
                     {rec.extras.expectedImpact ? (
                       <div>
-                        <span className="font-medium">השפעה צפויה: </span>
+                        <span className="font-medium">{t("card.impact")}</span>
                         {rec.extras.expectedImpact}
                       </div>
                     ) : null}
@@ -194,31 +221,65 @@ export function RecommendationCard({ rec }: { rec: RecommendationView }) {
                 ) : null}
               </Section>
 
-              <Section title={rec.whereGroupName ? `הודעה מוכנה לשליחה ב«${rec.whereGroupName}»` : "הודעה מוכנה לשליחה"}>
+              <Section title={rec.whereGroupName ? t("card.readyMessageIn", { name: rec.whereGroupName }) : t("card.readyMessage")}>
                 <Textarea readOnly value={rec.readyMessage} dir="auto" className="min-h-40 text-sm leading-relaxed [unicode-bidi:plaintext]" />
-                <div className="mt-2 flex gap-2">
+                <div className="mt-2 flex flex-wrap gap-2">
                   <CopyMessageButton text={rec.readyMessage} />
+                  {showCalendar ? (
+                    <Button type="button" size="sm" variant="outline" onClick={downloadIcs}>
+                      <CalendarPlusIcon className="size-4" />
+                      {t("card.addToCalendarIcs")}
+                    </Button>
+                  ) : null}
                 </div>
               </Section>
+
+              {showKickoff ? (
+                <Section title={t("card.kickoffTitle")}>
+                  <details className="group rounded-lg border bg-muted/30">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm [&::-webkit-details-marker]:hidden">
+                      <span>
+                        <span className="font-medium" dir="auto">
+                          {deriveGroupName(rec.title)}
+                        </span>
+                        <span className="text-muted-foreground">{t("card.kickoffHint")}</span>
+                      </span>
+                      <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                    </summary>
+                    <div className="border-t px-3 pb-3 pt-2">
+                      <Textarea readOnly value={kickoffDraft} dir="auto" className="min-h-56 text-sm leading-relaxed [unicode-bidi:plaintext]" />
+                    </div>
+                  </details>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <CopyMessageButton text={kickoffDraft} label={t("card.copyKickoff")} variant="secondary" />
+                  </div>
+                </Section>
+              ) : null}
 
               <Separator />
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant={done ? "secondary" : "default"} disabled={pending} onClick={() => setStatusRemote(done ? "proposed" : "done")}>
                   <CheckCircle2Icon className="size-4" />
-                  {done ? "בטל סימון" : "בוצע"}
+                  {done ? t("card.unmark") : t("card.done")}
                 </Button>
                 <Button size="sm" variant="ghost" disabled={pending} onClick={() => setStatusRemote(dismissed ? "proposed" : "dismissed")}>
                   <XCircleIcon className="size-4" />
-                  {dismissed ? "החזר" : "לא רלוונטי"}
+                  {dismissed ? t("card.restore") : t("card.dismissed")}
                 </Button>
               </div>
             </div>
           </SheetContent>
         </Sheet>
         <CopyMessageButton text={rec.readyMessage} />
+        {showCalendar ? (
+          <Button type="button" size="sm" variant="outline" onClick={downloadIcs}>
+            <CalendarPlusIcon className="size-4" />
+            {t("card.addToCalendar")}
+          </Button>
+        ) : null}
         {!done && !dismissed ? (
           <Button size="sm" variant="ghost" className="ms-auto text-muted-foreground" disabled={pending} onClick={() => setStatusRemote("done")}>
-            <CheckCircle2Icon className="size-4" /> בוצע
+            <CheckCircle2Icon className="size-4" /> {t("card.done")}
           </Button>
         ) : null}
       </CardFooter>
@@ -232,5 +293,49 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h4>
       {children}
     </section>
+  );
+}
+
+/**
+ * Evidence as a vertical timeline, oldest at the top. The line sits on the start side (right in RTL);
+ * a dot per quote, a caption for long gaps, and a one-line "memory" summary above.
+ */
+function EvidenceTimeline({ items }: { items: EvidenceView[] }) {
+  const { t, locale } = useLocale();
+  // Sheet content mounts only when opened, so this runs on the client; a lazy initializer keeps it stable across re-renders.
+  const [now] = useState(() => Date.now());
+  if (items.length === 0) return <p className="text-sm text-muted-foreground">{t("card.noEvidence")}</p>;
+
+  return (
+    <div>
+      <p className="mb-3 text-sm font-medium">{evidenceSummary(items, locale)}</p>
+      <ol className="relative ms-1.5 border-s-2 border-border ps-5">
+        {items.map((e, i) => {
+          const caption = i > 0 ? gapCaption(items[i - 1].ts, e.ts, 14, locale) : null;
+          return (
+            <li key={e.messageId} className="relative pb-5 last:pb-0">
+              {caption ? <div className="-mt-1 mb-3 text-xs text-muted-foreground">{caption}</div> : null}
+              <span aria-hidden className="absolute top-1 -start-[27px] size-3 rounded-full border-2 border-background bg-primary shadow-sm" />
+              <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                <span dir="ltr" className="font-medium tabular-nums text-foreground">
+                  {e.date}
+                </span>
+                <span>· {relativeLabel(e.ts, now, locale)}</span>
+                <span>· «{e.groupName}»</span>
+              </div>
+              <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+                <div className="mb-1 text-xs font-medium" dir="auto">
+                  {e.author}
+                </div>
+                <blockquote dir="auto" className="whitespace-pre-wrap leading-relaxed [unicode-bidi:plaintext]">
+                  {e.text}
+                </blockquote>
+                {e.whyRelevant ? <div className="mt-1.5 text-xs text-muted-foreground">↳ {e.whyRelevant}</div> : null}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }

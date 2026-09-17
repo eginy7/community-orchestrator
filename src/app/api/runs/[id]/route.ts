@@ -3,7 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import { isRunActive } from "@/lib/analysis/runner";
 import { getDb } from "@/lib/db/client";
 import { chunks, groups } from "@/lib/db/schema";
-import { getRun } from "@/lib/queries";
+import { getRun, getRunSummary } from "@/lib/queries";
 
 export const runtime = "nodejs";
 
@@ -18,8 +18,11 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/runs/[id]">) {
     .where(eq(chunks.runId, run.id))
     .orderBy(asc(chunks.groupId), asc(chunks.seq))
     .all();
+  const summary = getRunSummary(run.id);
   return NextResponse.json({
     chunks: chunkRows,
+    messagesRead: summary.messagesRead,
+    durationMs: summary.durationMs,
     id: run.id,
     status: run.status,
     stage: run.stage,

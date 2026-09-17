@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * SQLite schema. Everything member-related is keyed by pseudonym id ("M0123").
@@ -264,6 +264,38 @@ export const recommendations = sqliteTable(
   (t) => [index("recommendations_run").on(t.runId)],
 );
 
+/** One item of an AI-news brief. Stored exactly as validated from the model — no member ids or names. */
+export interface NewsItem {
+  title: string;
+  summary: string;
+  url: string;
+  source: string;
+  /** ISO date (YYYY-MM-DD) when known. */
+  published_at: string | null;
+  related_topics: string[];
+  why_now: string;
+  suggested_post: string;
+  /** "G12" or null for the announcement group. */
+  suggested_group_id: string | null;
+}
+
+/** "AI news worth talking about": one refresh of web-searched AI news ranked against the community's topics. */
+export const newsBriefs = sqliteTable(
+  "news_briefs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    communityId: integer("community_id").notNull().references(() => communities.id),
+    /** The completed run whose topics the brief was matched against; null when none existed yet. */
+    runId: integer("run_id").references(() => analysisRuns.id),
+    items: text("items", { mode: "json" }).$type<NewsItem[]>().notNull().default([]),
+    tokensIn: integer("tokens_in").notNull().default(0),
+    tokensOut: integer("tokens_out").notNull().default(0),
+    costUsd: real("cost_usd").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(now),
+  },
+  (t) => [index("news_briefs_community").on(t.communityId)],
+);
+
 export type Community = typeof communities.$inferSelect;
 export type Group = typeof groups.$inferSelect;
 export type Member = typeof members.$inferSelect;
@@ -274,3 +306,4 @@ export type MemberProfile = typeof memberProfiles.$inferSelect;
 export type Topic = typeof topics.$inferSelect;
 export type Thread = typeof threads.$inferSelect;
 export type Recommendation = typeof recommendations.$inferSelect;
+export type NewsBrief = typeof newsBriefs.$inferSelect;

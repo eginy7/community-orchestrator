@@ -2,6 +2,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { getDb } from "@/lib/db/client";
 import { groups } from "@/lib/db/schema";
+import { createT, type Locale } from "@/lib/i18n/messages";
 import { getPseudonymStore } from "@/lib/pseudonym/store";
 
 /**
@@ -49,12 +50,13 @@ export function humanize(text: string, real: boolean, mode: "ui" | "message" = "
 
 /**
  * First name / short handle for chips and avatars.
- * Members the exporting phone had not saved appear as phone numbers; show only the last digits.
+ * Members the exporting phone had not saved appear as phone numbers; show only the last digits
+ * (with a localized "member" prefix — Hebrew unless a UI locale is passed).
  */
-export function shortName(id: string, real: boolean): string {
+export function shortName(id: string, real: boolean, locale: Locale = "he"): string {
   const full = resolveName(id, real);
   if (!real) return full;
-  if (full.startsWith("+")) return `חבר/ה ···${full.replace(/\D/g, "").slice(-4)}`;
+  if (full.startsWith("+")) return createT(locale)("common.unsavedMember", { digits: full.replace(/\D/g, "").slice(-4) });
   return full.split(/\s+/).slice(0, 2).join(" ");
 }
 

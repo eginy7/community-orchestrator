@@ -1,7 +1,9 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, getSqlite } from "@/lib/db/client";
+import type { RunSummary } from "@/lib/run-summary";
 import {
   analysisRuns,
+  chunks,
   communities,
   groups,
   memberProfiles,
@@ -200,4 +202,16 @@ export function getCorpusEstimate(communityId: number, sinceMs: number | null = 
   const chunks = Math.max(1, Math.ceil(estTokens / 110_000));
   const estCostUsd = (estTokens * 5 + chunks * 12_000 * 25) / 1e6 + 0.8;
   return { messages: row.n, estTokens, estCostUsd: Math.round(estCostUsd * 10) / 10 };
+}
+
+/** What a run read and cost — for the "ניתחתי N הודעות ב-$X · M דקות" line. */
+export function getRunSummary(runId: number): RunSummary {
+  const run = getRun(runId);
+  const row = getDb()
+    .select({ n: sql<number>`coalesce(sum(${chunks.messageCount}), 0)` })
+    .from(chunks)
+    .where(and(eq(chunks.runId, runId), eq(chunks.status, "done")))
+    .get();
+  const durationMs = run?.startedAt && run.finishedAt ? run.finishedAt.getTime() - run.startedAt.getTime() : null;
+  return { messagesRead: row?.n ?? 0, costUsd: run?.progress?.costUsd ?? 0, durationMs };
 }

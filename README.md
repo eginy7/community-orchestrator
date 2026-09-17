@@ -9,10 +9,33 @@ Upload WhatsApp group exports → Claude builds a model of the people, topics an
 ```bash
 pnpm install
 cp .env.local.example .env.local   # add ANTHROPIC_API_KEY
-pnpm dev                           # http://localhost:3000
+pnpm dev                           # http://localhost:3737
 ```
 
 Flow: `/onboarding` (community + groups) → `/upload` (drop the `.zip`/`.txt` exports, pick a group per file, "נתח את הקהילה") → `/analysis/<run>` (live progress) → `/home`.
+
+## Auth setup (optional)
+
+Without auth configured the app runs exactly as before: no sign-in, everyone is an admin. To put it behind a login there are two roles:
+
+- **Admin (community manager)** — signs in with Google. Admins are the emails in `ADMIN_EMAILS`; they get the whole app.
+- **Viewer (community member)** — signs in with a phone number + SMS code and sees only `/ask` (the free "ask the community" box).
+
+Steps, in your own Supabase project (nothing here is tied to any particular account):
+
+1. Create a project at supabase.com. Copy **Project URL** and the **publishable (anon) key** from *Settings → API*.
+2. *Authentication → URL Configuration*: set **Site URL** to your deployment (e.g. `http://localhost:3737`) and add `<site>/auth/callback` to **Redirect URLs**.
+3. *Authentication → Providers → Google*: enable it and paste the OAuth client id/secret from Google Cloud Console. In Google's OAuth client, add Supabase's callback (`https://<project-ref>.supabase.co/auth/v1/callback`) as an authorized redirect URI.
+4. *Authentication → Providers → Phone*: enable it with Twilio (or another supported SMS provider). For demos without SMS, add **test phone numbers** with fixed codes under *Phone → Test OTPs* (use placeholder-style numbers such as `+972 50-000-0000`).
+5. Set the env vars (see `.env.local.example`):
+
+   ```bash
+   NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=<publishable (anon) key>
+   ADMIN_EMAILS=manager@example.com,second-manager@example.com
+   ```
+
+Routing is enforced in `src/proxy.ts` (Next 16 proxy): `/login` and `/auth/*` are public, `/ask` and `/api/ask` are open to both roles, everything else needs an admin. Anonymous requests to `/api/*` get a `401` JSON body instead of a redirect. A Google account that is not in `ADMIN_EMAILS` is signed in but not allowed anywhere; the login screen says so.
 
 ## CLI (faster for development)
 

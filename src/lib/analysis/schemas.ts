@@ -116,3 +116,22 @@ export const AskOutput = z.object({
     .describe("Optional Hebrew WhatsApp-ready message the manager could send (e.g. asking the person to help). Address people as @M#### tokens. null when not useful."),
 });
 export type AskOutput = z.infer<typeof AskOutput>;
+
+/** "AI news worth talking about" — fresh AI news matched to the community's hot topics. Simple types only (grammar compiler). */
+export const NewsItemSchema = z.object({
+  title: z.string().describe("Hebrew headline, short"),
+  summary: z.string().describe("Hebrew. 2-3 factual sentences on what happened"),
+  url: z.string().describe("Canonical http(s) link to the source article or announcement"),
+  source: z.string().describe("Publisher / site name, e.g. 'Anthropic', 'TechCrunch', 'Geektime'"),
+  published_at: z.string().nullable().describe("Publication date as ISO 8601 (YYYY-MM-DD), best effort; null when unknown"),
+  related_topics: z.array(z.string()).describe("Community topic names from the given list that this news touches; may be empty"),
+  why_now: z.string().describe("Hebrew. One sentence linking the news to what members were discussing"),
+  suggested_post: z.string().describe("Hebrew WhatsApp-ready message, warm peer voice, under 100 words, ends with a question that invites discussion"),
+  suggested_group_id: z.string().nullable().describe("One of the given group ids (G12), or null for the announcement group"),
+});
+
+export const NewsOutput = z.object({
+  items: z.array(NewsItemSchema).describe("5-8 items, most relevant to the community first"),
+});
+export type NewsOutput = z.infer<typeof NewsOutput>;
+export type NewsItemOut = z.infer<typeof NewsItemSchema>;

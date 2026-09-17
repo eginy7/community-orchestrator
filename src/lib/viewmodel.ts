@@ -1,39 +1,42 @@
 import "server-only";
 import type { Group, Recommendation, RecommendationTier, RecommendationType } from "@/lib/db/schema";
 import { humanize, initials, resolveName, shortName } from "@/lib/display";
+import { createT, dateLocaleOf, type Locale, type TFunction } from "@/lib/i18n/messages";
 import type { EvidenceMessage } from "@/lib/queries";
 
-/** Serializable, already de-pseudonymized view of a recommendation for client components. */
+/**
+ * Serializable, already de-pseudonymized view of a recommendation for client components.
+ * Labels (type, role) are resolved here in the UI locale, so client components render them as-is.
+ */
 
-export const TYPE_LABEL: Record<RecommendationType, string> = {
-  connect: "חיבור בין אנשים",
-  working_group: "קבוצת עבודה",
-  event: "אירוע / סדנה",
-  initiative: "יוזמה",
-  revive: "החייאת דיון",
-  ritual: "ריטואל קהילתי",
-};
+const ROLES = ["introducee", "participant", "host", "lead"] as const;
+type Role = (typeof ROLES)[number];
 
-export const TIER_LABEL: Record<RecommendationTier, string> = {
-  do_now: "לעשות עכשיו",
-  organize: "לארגן",
-  plan: "לתכנן",
-};
+export function typeLabel(type: RecommendationType, t: TFunction): string {
+  return t(`types.${type}`);
+}
 
-export const TIER_HINT: Record<RecommendationTier, string> = {
-  do_now: "ביטחון גבוה, מאמץ נמוך. אפשר לשלוח היום.",
-  organize: "דורש כמה ימי הכנה.",
-  plan: "יוזמה גדולה יותר לחודש הקרוב.",
-};
+export function tierLabel(tier: RecommendationTier, t: TFunction): string {
+  return t(`tiers.${tier}`);
+}
 
-const ROLE_LABEL = { introducee: "להכיר", participant: "משתתף/ת", host: "מנחה", lead: "מוביל/ה" } as const;
+export function tierHint(tier: RecommendationTier, t: TFunction): string {
+  return t(`tierHints.${tier}`);
+}
+
+function roleLabel(role: string, t: TFunction): string {
+  return (ROLES as readonly string[]).includes(role) ? t(`roles.${role as Role}`) : role;
+}
 
 export interface PersonView {
   id: string;
   name: string;
   short: string;
   initials: string;
+  /** Localized role label for display. */
   role: string;
+  /** Raw role id ("host", "lead", …) for logic such as picking event hosts. */
+  roleKey?: string;
   reason: string;
 }
 
@@ -42,7 +45,10 @@ export interface EvidenceView {
   author: string;
   authorId: string;
   groupName: string;
+  /** dd.mm.yy, pre-formatted for display. */
   date: string;
+  /** Epoch ms of the quoted message — lets the client build a timeline without re-parsing dates. */
+  ts: number;
   text: string;
   whyRelevant: string;
 }
@@ -66,19 +72,20 @@ export interface RecommendationView {
   status: Recommendation["status"];
 }
 
-const fmtDate = (d: Date) => d.toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit", year: "2-digit" });
-
 export function toRecommendationView(
   rec: Recommendation,
   real: boolean,
   groupsById: Map<number, Group>,
   messagesById: Map<number, EvidenceMessage>,
+  locale: Locale = "he",
 ): RecommendationView {
+  const t = createT(locale);
+  const fmtDate = (d: Date) => d.toLocaleDateString(dateLocaleOf(locale), { day: "2-digit", month: "2-digit", year: "2-digit" });
   return {
     id: rec.id,
     rank: rec.rank,
     type: rec.type,
-    typeLabel: TYPE_LABEL[rec.type],
+    typeLabel: typeLabel(rec.type, t),
     tier: rec.tier,
     title: humanize(rec.title, real),
     why: humanize(rec.why, real),
@@ -88,26 +95,31 @@ export function toRecommendationView(
     people: rec.people.map((p) => ({
       id: p.member_id,
       name: resolveName(p.member_id, real),
-      short: shortName(p.member_id, real),
+      short: shortName(p.member_id, real, locale),
       initials: initials(p.member_id, real),
-      role: ROLE_LABEL[p.role] ?? p.role,
+      role: roleLabel(p.role, t),
+      roleKey: p.role,
       reason: humanize(p.reason, real),
     })),
-    evidence: rec.evidence.flatMap((e) => {
-      const m = messagesById.get(e.message_id);
-      if (!m) return [];
-      return [
-        {
-          messageId: m.id,
-          author: m.memberId ? resolveName(m.memberId, real) : "מערכת",
-          authorId: m.memberId ?? "",
-          groupName: m.groupName,
-          date: fmtDate(m.ts),
-          text: humanize(m.text, real),
-          whyRelevant: humanize(e.why_relevant, real),
-        },
-      ];
-    }),
+    evidence: rec.evidence
+      .flatMap((e): EvidenceView[] => {
+        const m = messagesById.get(e.message_id);
+        if (!m) return [];
+        return [
+          {
+            messageId: m.id,
+            author: m.memberId ? resolveName(m.memberId, real) : t("common.systemAuthor"),
+            authorId: m.memberId ?? "",
+            groupName: m.groupName,
+            date: fmtDate(m.ts),
+            ts: m.ts.getTime(),
+            text: humanize(m.text, real),
+            whyRelevant: humanize(e.why_relevant, real),
+          },
+        ];
+      })
+      // Oldest first: the drawer renders these as a timeline.
+      .sort((a, b) => a.ts - b.ts),
     extras: rec.extras
       ? {
           agenda: rec.extras.agenda.map((a) => humanize(a, real)),

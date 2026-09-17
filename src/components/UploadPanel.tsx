@@ -12,7 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { KIND_OPTIONS } from "./GroupsEditor";
+import { useLocale } from "@/lib/i18n/client";
+import { kindLabel } from "./GroupsEditor";
 import { ImportBoard, IMPORT_STEPS, type BoardGroup, type BoardPending } from "./ImportBoard";
 
 interface GroupInfo {
@@ -59,9 +60,6 @@ function guessGroupName(filename: string): string {
   return /^_?chat$/i.test(base) ? "" : base;
 }
 
-const fmtDate = (v: number | string | null | undefined) => (v ? new Date(v).toLocaleDateString("he-IL") : "—");
-const kindLabel = (k: string) => KIND_OPTIONS.find((o) => o.value === k)?.label ?? k;
-
 interface Props {
   firstTime: boolean;
   communityName: string | null;
@@ -74,15 +72,23 @@ interface Props {
 
 export function UploadPanel({ firstTime, communityName: initialCommunityName, groups, latestRun, hasCompletedRun, estimate }: Props) {
   const router = useRouter();
+  const { t, dateLocale } = useLocale();
   const [rows, setRows] = useState<Row[]>([]);
-  const [communityName, setCommunityName] = useState(initialCommunityName ?? "בונים AI");
+  const [communityName, setCommunityName] = useState(initialCommunityName ?? t("upload.defaultCommunityName"));
   const [days, setDays] = useState("7");
   const [starting, setStarting] = useState(false);
   const communityNameRef = useRef(communityName);
   communityNameRef.current = communityName;
+  // `t` is stable per locale; captured in refs so the upload loop does not restart on a language switch.
+  const tRef = useRef(t);
+  tRef.current = t;
+
+  const fmtDate = (v: number | string | null | undefined) => (v ? new Date(v).toLocaleDateString(dateLocale) : "—");
+  const num = (n: number) => n.toLocaleString(dateLocale);
 
   const uploadRow = useCallback(
     async (index: number, row: Row) => {
+      const tt = tRef.current;
       setRows((r) => r.map((x, j) => (j === index ? { ...x, state: "uploading", step: 0, error: undefined } : x)));
       // The server answers only when the whole file is ingested, so pace the visible steps by file size.
       const tick = Math.min(1500, Math.max(350, (row.file.size / 1_000_000) * 800));
@@ -91,16 +97,16 @@ export function UploadPanel({ firstTime, communityName: initialCommunityName, gr
       }, tick);
       const fd = new FormData();
       fd.append("file", row.file);
-      fd.append("communityName", communityNameRef.current.trim() || "הקהילה שלי");
+      fd.append("communityName", communityNameRef.current.trim() || tt("upload.fallbackCommunityName"));
       if (row.groupId !== AUTO && row.groupId) fd.append("groupId", row.groupId);
       try {
         const res = await fetch("/api/upload", { method: "POST", body: fd });
         const json = (await res.json()) as UploadResult & { error?: string };
-        if (!res.ok) throw new Error(json.error ?? "שגיאה");
+        if (!res.ok) throw new Error(json.error ?? tt("common.error"));
         setRows((r) => r.map((x, j) => (j === index ? { ...x, state: "done", step: IMPORT_STEPS.length, result: json } : x)));
-        if (json.promotedToAnnouncement) toast.info(`«${json.groupName}» זוהתה כקבוצת ההודעות של הקהילה`);
+        if (json.promotedToAnnouncement) toast.info(tt("upload.promotedToast", { name: json.groupName }));
       } catch (err) {
-        setRows((r) => r.map((x, j) => (j === index ? { ...x, state: "error", error: err instanceof Error ? err.message : "שגיאה" } : x)));
+        setRows((r) => r.map((x, j) => (j === index ? { ...x, state: "error", error: err instanceof Error ? err.message : tt("common.error") } : x)));
       } finally {
         clearInterval(timer);
       }
@@ -141,10 +147,10 @@ export function UploadPanel({ firstTime, communityName: initialCommunityName, gr
         body: JSON.stringify({ sinceDays: hasCompletedRun ? Number(days) || 0 : 0 }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "שגיאה");
+      if (!res.ok) throw new Error(json.error ?? t("common.error"));
       router.push(`/analysis/${json.runId}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "לא הצלחתי להתחיל ניתוח");
+      toast.error(err instanceof Error ? err.message : t("upload.startFailed"));
       setStarting(false);
     }
   };
@@ -157,7 +163,7 @@ export function UploadPanel({ firstTime, communityName: initialCommunityName, gr
     key: `g${g.id}`,
     name: g.name,
     kind: g.kind,
-    kindLabel: kindLabel(g.kind),
+    kindLabel: kindLabel(g.kind, t),
     messageCount: g.messageCount,
     memberCount: g.memberCount,
     fresh: false,
@@ -168,11 +174,11 @@ export function UploadPanel({ firstTime, communityName: initialCommunityName, gr
     if (existing) {
       if (!groups.some((g) => g.name === res.groupName && g.messageCount > 0)) existing.fresh = true;
       existing.kind = res.groupKind;
-      existing.kindLabel = kindLabel(res.groupKind);
+      existing.kindLabel = kindLabel(res.groupKind, t);
       existing.messageCount = Math.max(existing.messageCount, res.inserted);
       existing.memberCount = Math.max(existing.memberCount, res.members);
     } else {
-      boardGroups.push({ key: `f${r.file.name}`, name: res.groupName, kind: res.groupKind, kindLabel: kindLabel(res.groupKind), messageCount: res.inserted, memberCount: res.members, fresh: true });
+      boardGroups.push({ key: `f${r.file.name}`, name: res.groupName, kind: res.groupKind, kindLabel: kindLabel(res.groupKind, t), messageCount: res.inserted, memberCount: res.members, fresh: true });
     }
   }
   const boardPending: BoardPending[] = rows.filter((r) => r.state === "uploading" || r.state === "idle").map((r) => ({ key: r.file.name, name: r.guessedName, step: r.step }));
@@ -186,48 +192,46 @@ export function UploadPanel({ firstTime, communityName: initialCommunityName, gr
           <Card size="sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <SmartphoneIcon className="size-4" /> איך מייצאים צ׳אט מוואטסאפ
+                <SmartphoneIcon className="size-4" /> {t("upload.howToExport")}
               </CardTitle>
             </CardHeader>
             <CardContent className="text-sm leading-relaxed space-y-3">
               <div>
-                <div className="font-medium">iPhone</div>
+                <div className="font-medium">{t("upload.iphone")}</div>
                 <ol className="list-decimal ps-5 space-y-0.5 text-muted-foreground">
-                  <li>פתחו את הקבוצה ולחצו על שמה למעלה</li>
-                  <li>גללו למטה ← «ייצוא צ׳אט»</li>
-                  <li>בחרו «ללא מדיה»</li>
-                  <li>שתפו ל-AirDrop למק, או שמרו ב«קבצים» / שלחו במייל לעצמכם</li>
+                  <li>{t("upload.iphone1")}</li>
+                  <li>{t("upload.iphone2")}</li>
+                  <li>{t("upload.iphone3")}</li>
+                  <li>{t("upload.iphone4")}</li>
                 </ol>
               </div>
               <div>
-                <div className="font-medium">Android</div>
+                <div className="font-medium">{t("upload.android")}</div>
                 <ol className="list-decimal ps-5 space-y-0.5 text-muted-foreground">
-                  <li>פתחו את הקבוצה ← ⋮ ← «עוד»</li>
-                  <li>«ייצוא צ׳אט» ← «ללא מדיה»</li>
-                  <li>שמרו ב-Drive או שלחו לעצמכם</li>
+                  <li>{t("upload.android1")}</li>
+                  <li>{t("upload.android2")}</li>
+                  <li>{t("upload.android3")}</li>
                 </ol>
               </div>
-              <p className="text-muted-foreground">
-                חזרו על זה לכל קבוצה בקהילה, כולל קבוצת ההודעות. כל ההיסטוריה שיש — הזיכרון של Claude נבנה ממנה.
-              </p>
+              <p className="text-muted-foreground">{t("upload.repeatNote")}</p>
             </CardContent>
           </Card>
           <Card size="sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <SparklesIcon className="size-4" /> מה קורה אוטומטית
+                <SparklesIcon className="size-4" /> {t("upload.whatHappens")}
               </CardTitle>
             </CardHeader>
             <CardContent className="text-sm leading-relaxed space-y-3">
               <ul className="list-disc ps-5 space-y-1 text-muted-foreground">
-                <li>שם הקבוצה נלקח משם הקובץ (למשל «WhatsApp Chat - שאלות ועזרה.zip»)</li>
-                <li>סוג הקבוצה מזוהה מהשם: שאלות, משרות, פרויקטים, כללי, נושא</li>
-                <li>קבוצה שרק אחד-שניים כותבים בה מסומנת כקבוצת ההודעות</li>
-                <li>שמות וטלפונים מוחלפים במזהים אנונימיים לפני שכל דבר נשמר או נשלח ל-Claude</li>
-                <li>הקבצים עצמם לא נשמרים בדיסק</li>
+                <li>{t("upload.auto1")}</li>
+                <li>{t("upload.auto2")}</li>
+                <li>{t("upload.auto3")}</li>
+                <li>{t("upload.auto4")}</li>
+                <li>{t("upload.auto5")}</li>
               </ul>
               <div className="grid gap-1.5 pt-1">
-                <Label htmlFor="communityName">שם הקהילה</Label>
+                <Label htmlFor="communityName">{t("upload.communityNameLabel")}</Label>
                 <Input id="communityName" value={communityName} onChange={(e) => setCommunityName(e.target.value)} dir="auto" />
               </div>
             </CardContent>
@@ -241,13 +245,13 @@ export function UploadPanel({ firstTime, communityName: initialCommunityName, gr
       >
         <input {...getInputProps()} />
         <UploadCloudIcon className="size-12 text-muted-foreground" />
-        <p className="mt-3 text-lg font-medium">גררו לכאן את כל קבצי הייצוא (zip או txt)</p>
-        <p className="mt-1 text-sm text-muted-foreground">כמה קבוצות בבת אחת. הייבוא מתחיל מיד.</p>
+        <p className="mt-3 text-lg font-medium">{t("upload.dropTitle")}</p>
+        <p className="mt-1 text-sm text-muted-foreground">{t("upload.dropHint")}</p>
       </div>
 
       {rows.length || groups.some((g) => g.messageCount > 0) ? (
         <ImportBoard
-          communityName={communityName.trim() || "הקהילה"}
+          communityName={communityName.trim() || t("upload.boardFallbackName")}
           groups={boardGroups}
           pending={boardPending}
           failed={failedRows.length}
@@ -259,7 +263,7 @@ export function UploadPanel({ firstTime, communityName: initialCommunityName, gr
       {failedRows.length ? (
         <Card>
           <CardHeader>
-            <CardTitle>קבצים שלא נקלטו</CardTitle>
+            <CardTitle>{t("upload.failedFiles")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {rows.map((row, i) =>
@@ -276,7 +280,7 @@ export function UploadPanel({ firstTime, communityName: initialCommunityName, gr
                   </div>
                   <Select value={row.groupId === AUTO ? "" : row.groupId} onValueChange={(v) => setRows((r) => r.map((x, j) => (j === i ? { ...x, groupId: v ?? "" } : x)))}>
                     <SelectTrigger className="min-w-44">
-                      <SelectValue placeholder="בחרו קבוצה קיימת" />
+                      <SelectValue placeholder={t("upload.chooseExisting")} />
                     </SelectTrigger>
                     <SelectContent>
                       {groups.map((g) => (
@@ -289,7 +293,7 @@ export function UploadPanel({ firstTime, communityName: initialCommunityName, gr
                   <span className="flex flex-wrap items-center gap-2 text-sm text-destructive">
                     <XCircleIcon className="size-4" /> {row.error}
                     <Button size="sm" variant="outline" onClick={() => uploadRow(i, row)}>
-                      נסה שוב
+                      {t("common.retry")}
                     </Button>
                   </span>
                 </div>
@@ -302,17 +306,17 @@ export function UploadPanel({ firstTime, communityName: initialCommunityName, gr
       {groups.length ? (
         <Card>
           <CardHeader>
-            <CardTitle>הקהילה כפי שזוהתה</CardTitle>
+            <CardTitle>{t("upload.detected")}</CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>קבוצה</TableHead>
-                  <TableHead>סוג</TableHead>
-                  <TableHead className="text-end">הודעות</TableHead>
-                  <TableHead className="text-end">כותבים</TableHead>
-                  <TableHead>טווח</TableHead>
+                  <TableHead>{t("upload.colGroup")}</TableHead>
+                  <TableHead>{t("upload.colKind")}</TableHead>
+                  <TableHead className="text-end">{t("upload.colMessages")}</TableHead>
+                  <TableHead className="text-end">{t("upload.colWriters")}</TableHead>
+                  <TableHead>{t("upload.colRange")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -322,10 +326,10 @@ export function UploadPanel({ firstTime, communityName: initialCommunityName, gr
                       {g.name}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={g.kind === "announcement" ? "default" : "outline"}>{kindLabel(g.kind)}</Badge>
+                      <Badge variant={g.kind === "announcement" ? "default" : "outline"}>{kindLabel(g.kind, t)}</Badge>
                     </TableCell>
-                    <TableCell className="text-end tabular-nums">{g.messageCount.toLocaleString("he-IL")}</TableCell>
-                    <TableCell className="text-end tabular-nums">{g.memberCount.toLocaleString("he-IL")}</TableCell>
+                    <TableCell className="text-end tabular-nums">{num(g.messageCount)}</TableCell>
+                    <TableCell className="text-end tabular-nums">{num(g.memberCount)}</TableCell>
                     <TableCell dir="ltr" className="text-end text-muted-foreground">
                       {g.messageCount ? `${fmtDate(g.firstTs)} – ${fmtDate(g.lastTs)}` : "—"}
                     </TableCell>
@@ -334,7 +338,11 @@ export function UploadPanel({ firstTime, communityName: initialCommunityName, gr
               </TableBody>
             </Table>
             <p className="mt-3 text-xs text-muted-foreground">
-              משהו זוהה לא נכון? אפשר לתקן שם, סוג ומטרה ב<a href="/onboarding" className="underline">הגדרות</a>.
+              {t("upload.fixHintBefore")}
+              <a href="/onboarding" className="underline">
+                {t("upload.fixHintLink")}
+              </a>
+              {t("upload.fixHintAfter")}
             </p>
           </CardContent>
         </Card>
@@ -343,36 +351,34 @@ export function UploadPanel({ firstTime, communityName: initialCommunityName, gr
       <Card className="border-primary/40">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <SparklesIcon className="size-5 text-primary" /> {hasCompletedRun ? "צ׳ק-אין שבועי" : "הסריקה הראשונה: כל ההיסטוריה"}
+            <SparklesIcon className="size-5 text-primary" /> {hasCompletedRun ? t("upload.weeklyCheckin") : t("upload.firstScan")}
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-wrap items-end gap-4">
           {hasCompletedRun ? (
             <div className="grid gap-1.5">
-              <Label htmlFor="days">כמה ימים אחורה לקרוא לעומק</Label>
+              <Label htmlFor="days">{t("upload.daysLabel")}</Label>
               <Input id="days" type="number" min={0} value={days} onChange={(e) => setDays(e.target.value)} className="w-32" dir="ltr" />
-              <span className="text-xs text-muted-foreground">ההיסטוריה כבר בזיכרון של Claude. 0 = לקרוא הכול מחדש.</span>
+              <span className="text-xs text-muted-foreground">{t("upload.daysHint")}</span>
             </div>
           ) : (
             <p className="max-w-xl text-sm text-muted-foreground leading-relaxed">
-              בפעם הראשונה Claude קורא את כל מה שהעליתם ובונה את הזיכרון של הקהילה: מי כל אחד, מה מעניין אותו, מה נשאל ולא נענה. מהשבוע הבא
-              תעלו רק את השיחות החדשות ותבחרו כמה ימים אחורה לקרוא לעומק.
+              {t("upload.firstScanBody")}
               {estimate && estimate.messages > 0 ? (
                 <>
                   {" "}
-                  במאגר כרגע {estimate.messages.toLocaleString("he-IL")} הודעות, כ-{Math.round(estimate.estTokens / 1000).toLocaleString("he-IL")} אלף טוקנים, עלות משוערת{" "}
-                  <span dir="ltr">~${estimate.estCostUsd}</span>.
+                  {t("upload.estimateBefore", { messages: num(estimate.messages), ktokens: num(Math.round(estimate.estTokens / 1000)) })} <span dir="ltr">~${estimate.estCostUsd}</span>.
                 </>
               ) : null}
             </p>
           )}
           <Button size="lg" onClick={startAnalysis} disabled={!hasData || starting || uploading}>
             {starting ? <Loader2Icon className="size-4 animate-spin" /> : <SparklesIcon className="size-4" />}
-            {hasCompletedRun ? "נתח את השבוע" : "נתח את כל ההיסטוריה"}
+            {hasCompletedRun ? t("upload.analyzeWeek") : t("upload.analyzeAll")}
           </Button>
           {latestRun ? (
             <Button variant="link" onClick={() => router.push(latestRun.status === "done" ? "/home" : `/analysis/${latestRun.id}`)}>
-              {latestRun.status === "done" ? "לתוצאות הניתוח האחרון" : "לניתוח שרץ עכשיו"}
+              {latestRun.status === "done" ? t("upload.lastResults") : t("upload.runningNow")}
             </Button>
           ) : null}
         </CardContent>

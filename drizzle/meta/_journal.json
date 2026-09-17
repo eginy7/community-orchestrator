@@ -15,6 +15,13 @@
       "when": 1789661911680,
       "tag": "0001_productive_lightspeed",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789664335740,
+      "tag": "0002_giant_mandarin",
+      "breakpoints": true
     }
   ]
 }
