@@ -72,6 +72,10 @@ async function main() {
       console.log(`  tokens in ${p.tokensIn.toLocaleString()} / out ${p.tokensOut.toLocaleString()} / cache read ${p.cacheRead.toLocaleString()} — ~$${p.costUsd}`);
     }
     if (run.status === "done" && stage !== "A") {
+      if (run.followUps?.length) {
+        console.log(`\n${run.followUps.length} follow-ups on the previous plan:`);
+        for (const f of run.followUps) console.log(`  [${f.outcome}] ${f.previous_title} — ${f.note}`);
+      }
       const recs = db.select().from(recommendations).where(eq(recommendations.runId, runId)).all();
       console.log(`\n${recs.length} recommendations:`);
       for (const r of recs) console.log(`  ${r.rank}. [${r.tier}/${r.type}/${r.confidence}] ${r.title} — people: ${r.people.map((p) => p.member_id).join(",")} — evidence: ${r.evidence.length}`);

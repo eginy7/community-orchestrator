@@ -32,9 +32,9 @@ export function formatSpan(ms: number): string {
   const days = Math.round(Math.abs(ms) / DAY_MS);
   if (days < 1) return "פחות מיום";
   if (days < 14) return count(days, "יום אחד", "יומיים", "ימים");
-  if (days < 61) return count(Math.round(days / 7), "שבוע אחד", "שבועיים", "שבועות");
+  if (days < 49) return count(Math.round(days / 7), "שבוע אחד", "שבועיים", "שבועות");
   const months = Math.round(days / 30.44);
-  if (months < 24) return count(months, "חודש אחד", "חודשיים", "חודשים");
+  if (months < 18) return count(months, "חודש אחד", "חודשיים", "חודשים");
   return count(Math.round(days / 365.25), "שנה אחת", "שנתיים", "שנים");
 }
 
@@ -60,6 +60,11 @@ function groupsWord(n: number): string {
 
 function timesWord(n: number): string {
   return count(n, "פעם אחת", "פעמיים", "פעמים");
+}
+
+/** "דנה ויוסי" for Hebrew names, "דנה ו-M0204" when the second token is Latin / numeric. */
+function joinPair(a: string, b: string): string {
+  return /^[֐-׿]/.test(b) ? `${a} ו${b}` : `${a} ו-${b}`;
 }
 
 /** Cut to the character budget on a word boundary. */
@@ -118,7 +123,7 @@ export function buildMissedHook(rec: Recommendation, messagesById: Map<number, E
       const co = countPairCoInteractions(pair[0], pair[1]);
       const gap = span < DAY_MS ? "באותו יום" : `בהפרש של ${formatSpan(span)}`;
       const tail = co === 0 ? "ומעולם לא כתבו באותה שיחה" : co <= 5 ? `וכתבו זה לצד זה רק ${timesWord(co)}` : `וכתבו זה לצד זה ${timesWord(co)}`;
-      const named = `${shortName(pair[0], real)} ו${shortName(pair[1], real)} דיברו על אותו נושא ${gap} ${tail}`;
+      const named = `${joinPair(shortName(pair[0], real), shortName(pair[1], real))} דיברו על אותו נושא ${gap} ${tail}`;
       const generic = `שני חברים דיברו על אותו נושא ${gap} ${tail}`;
       return { ...base, hook: named.length <= MAX_HOOK_CHARS ? named : clip(generic) };
     }

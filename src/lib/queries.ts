@@ -10,6 +10,7 @@ import {
   threads,
   topics,
   uploads,
+  type FollowUp,
   type Group,
   type Recommendation,
 } from "@/lib/db/schema";
@@ -67,6 +68,11 @@ export function getLatestRun(communityId: number, status?: "done") {
 
 export function getRun(runId: number) {
   return getDb().select().from(analysisRuns).where(eq(analysisRuns.id, runId)).get() ?? null;
+}
+
+/** Stage B's report on the previous run's plan. Empty on the first run or before Stage B finished. */
+export function getFollowUps(runId: number): FollowUp[] {
+  return getDb().select({ followUps: analysisRuns.followUps }).from(analysisRuns).where(eq(analysisRuns.id, runId)).get()?.followUps ?? [];
 }
 
 export function getRecommendations(runId: number): Recommendation[] {

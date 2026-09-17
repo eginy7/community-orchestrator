@@ -149,13 +149,20 @@ export interface StageBResult {
   drops: DropStats;
 }
 
-export async function runStageB(doc: CommunityModelDoc, known: KnownForStageB, opts?: { extraInstruction?: string; effort?: "medium" | "high" | "xhigh" }): Promise<StageBResult> {
+export interface StageBOptions {
+  extraInstruction?: string;
+  effort?: "medium" | "high" | "xhigh";
+  /** Rendered "last week's plan + what the data shows since" block (see followups.ts). Goes into the user message only. */
+  previousPlan?: string;
+}
+
+export async function runStageB(doc: CommunityModelDoc, known: KnownForStageB, opts?: StageBOptions): Promise<StageBResult> {
   const client = getAnthropic();
   const stream = client.messages.stream({
     model: MODEL,
     max_tokens: MAX_OUTPUT_TOKENS,
     system: buildStageBSystem(doc.text),
-    messages: [{ role: "user", content: buildStageBUser(new Date().toISOString().slice(0, 10), opts?.extraInstruction) }],
+    messages: [{ role: "user", content: buildStageBUser(new Date().toISOString().slice(0, 10), opts?.extraInstruction, opts?.previousPlan) }],
     output_config: { effort: opts?.effort ?? "high", format: zodOutputFormat(StageBOutput) },
   });
   const message = await stream.finalMessage();

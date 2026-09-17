@@ -14,6 +14,7 @@ import {
   type RunProgress,
 } from "@/lib/db/schema";
 import { loadGroupMessages, messagesForChunk, planChunks, DEFAULT_CHUNK_TOKENS } from "./chunker";
+import { buildPreviousPlan } from "./followups";
 import { formatMessages, formatRoster, type FormattableMessage } from "./format";
 import { mergeStageA, persistMerged, type ChunkResultInput } from "./merge";
 import type { GroupContext } from "./prompts";
@@ -147,12 +148,22 @@ export async function runAnalysis(runId: number, opts: RunOptions = {}): Promise
       const doc = buildCommunityModelDoc({ community, groups: groupRows, runId, sinceMs });
       progress.log(`מסמך הקהילה: ~${doc.tokenEstimate.toLocaleString()} טוקנים, ${doc.memberCount} חברים, ${doc.topicCount} נושאים, ${doc.threadCount} שיחות, ${doc.pairCount} זוגות`);
       const known = knownForStageB(groupRows.map((g) => g.id));
-      const result = await runStageB(doc, known, { effort: opts.effortB, extraInstruction: opts.extraInstruction });
+      // Feedback loop: on every run after the first, Stage B sees last week's plan together with
+      // what the database shows happened since, and reports on each item in `follow_ups`.
+      const previousPlan = buildPreviousPlan({ communityId: community.id, currentRunId: runId, groupIds: groupRows.map((g) => g.id) });
+      if (previousPlan) {
+        progress.log(`משוב: ${previousPlan.itemCount} המלצות מריצה #${previousPlan.prevRunId} (מאז ${new Date(previousPlan.sinceMs).toLocaleDateString("he-IL")}) נבדקות מול הנתונים`);
+      }
+      const result = await runStageB(doc, known, { effort: opts.effortB, extraInstruction: opts.extraInstruction, previousPlan: previousPlan?.text });
       progress.addUsage(result.usage);
       persistRecommendations(runId, community.id, result.output);
-      db.update(analysisRuns).set({ communityPulse: result.output.community_pulse }).where(eq(analysisRuns.id, runId)).run();
+      db.update(analysisRuns)
+        .set({ communityPulse: result.output.community_pulse, followUps: previousPlan ? result.output.follow_ups : null })
+        .where(eq(analysisRuns.id, runId))
+        .run();
       progress.log(
-        `שלב ב׳: ${result.output.recommendations.length} המלצות (נפסלו ${result.drops.droppedRecommendations}, ids לא מוכרים: ${result.drops.unknownMembers + result.drops.unknownMessages})`,
+        `שלב ב׳: ${result.output.recommendations.length} המלצות (נפסלו ${result.drops.droppedRecommendations}, ids לא מוכרים: ${result.drops.unknownMembers + result.drops.unknownMessages})` +
+          (previousPlan ? ` · מעקב: ${result.output.follow_ups.length} דיווחים, ${result.output.follow_ups.filter((f) => f.outcome === "happened").length} קרו` : ""),
       );
     }
 

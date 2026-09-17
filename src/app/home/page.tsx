@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { ArrowUpRightIcon, MinusIcon, TrendingDownIcon, TrendingUpIcon, UploadIcon } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { AskCommunity } from "@/components/AskCommunity";
+import { FollowUps } from "@/components/FollowUps";
+import { MissedCard } from "@/components/MissedCard";
 import { RecommendationCard } from "@/components/RecommendationCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,7 +11,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { humanize, resolveName, showRealNames } from "@/lib/display";
 import type { RecommendationTier } from "@/lib/db/schema";
-import { getCommunity, getGroups, getGroupStats, getLatestRun, getMessagesByIds, getOpenThreads, getRecommendations, getTopProfiles, getTopics, getWeeklyReminder } from "@/lib/queries";
+import { pickMissedHero } from "@/lib/missed";
+import { getCommunity, getGroups, getGroupStats, getLatestRun, getMessagesByIds, getOpenThreads, getProfileCount, getRecommendations, getTopProfiles, getTopics, getWeeklyReminder } from "@/lib/queries";
 import { TIER_HINT, TIER_LABEL, toRecommendationView } from "@/lib/viewmodel";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +49,8 @@ export default async function HomePage() {
   const messageIds = [...new Set(recs.flatMap((r) => r.evidence.map((e) => e.message_id)))];
   const messagesById = getMessagesByIds(messageIds);
   const views = recs.map((r) => toRecommendationView(r, real, groupsById, messagesById));
+  const missed = pickMissedHero(recs, views, messagesById, real);
+  const profileCount = getProfileCount(run.id);
 
   const stats = getGroupStats(community.id);
   const totalMessages = stats.reduce((s, g) => s + g.messageCount, 0);
@@ -78,9 +84,17 @@ export default async function HomePage() {
         </p>
       </section>
 
+      {missed ? <MissedCard view={missed.view} hook={missed.hook} className="mb-10" /> : null}
+
+      <FollowUps run={run} real={real} />
+
+      <section className="mb-10">
+        <AskCommunity profileCount={profileCount} />
+      </section>
+
       <div className="space-y-10">
         {TIERS.map((tier) => {
-          const items = views.filter((v) => v.tier === tier);
+          const items = views.filter((v) => v.tier === tier && v.id !== missed?.view.id);
           if (items.length === 0) return null;
           return (
             <section key={tier}>

@@ -39,9 +39,7 @@ export function MissedCard({ view, hook, className }: Props) {
             <h2 id="missed-title" className="text-2xl sm:text-3xl font-bold tracking-tight">
               מה פספסתי
             </h2>
-            <p className="mt-2 max-w-3xl text-lg sm:text-xl font-medium leading-snug text-start" dir="auto">
-              {hook.hook}
-            </p>
+            <p className="mt-2 max-w-3xl text-lg sm:text-xl font-medium leading-snug text-start [unicode-bidi:plaintext]">{hook.hook}</p>
           </div>
           {memory.length ? (
             <Badge variant="outline" className="h-auto gap-1.5 whitespace-normal border-violet-500/30 bg-background/70 px-2.5 py-1 text-xs font-normal text-muted-foreground">
